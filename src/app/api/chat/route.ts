@@ -33,12 +33,12 @@ async function groqStream(messages: ChatMessage[], systemPrompt: string) {
     max_completion_tokens: 8192,
     top_p: 1,
     stream: true,
-    // @ts-expect-error groq-sdk extended params
+    // ts-expect-error groq-sdk extended params
     reasoning_effort: 'medium',
     tools: [
-      // @ts-expect-error groq-sdk extended tool types
+      // -expect-error groq-sdk extended tool types
       { type: 'browser_search' },
-      // @ts-expect-error groq-sdk extended tool types
+      // -expect-error groq-sdk extended tool types
       { type: 'code_interpreter' },
     ],
   })
