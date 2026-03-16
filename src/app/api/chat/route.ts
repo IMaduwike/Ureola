@@ -45,6 +45,7 @@ async function groqStream(messages: ChatMessage[], systemPrompt: string) {
 }
 
 async function groqCall(messages: ChatMessage[], systemPrompt: string) {
+  // @ts-ignore
   const res = await groq.chat.completions.create({
     model: MODEL,
     messages: [{ role: 'system', content: systemPrompt }, ...messages],
