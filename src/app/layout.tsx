@@ -10,7 +10,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body>
-        {/* Aurora background — always present */}
         <div className="aurora" aria-hidden="true">
           <div className="aurora-orb" />
           <div className="aurora-orb" />
