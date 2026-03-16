@@ -25,7 +25,7 @@ Return ONLY the bullet points, nothing else.`
 type ChatMessage = { role: 'user' | 'assistant' | 'system'; content: string }
 
 async function groqStream(messages: ChatMessage[], systemPrompt: string) {
-// @ts-ignor
+// @ts-ignore
   return groq.chat.completions.create({
     model: MODEL,
     messages: [{ role: 'system', content: systemPrompt }, ...messages],
