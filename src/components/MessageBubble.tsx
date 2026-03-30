@@ -15,8 +15,8 @@ interface Props {
 
 // Plugin arrays defined outside component so they're stable references
 // (avoids ReactMarkdown re-processing on every render)
-const REMARK_PLUGINS = [remarkGfm, remarkMath] as const
-const REHYPE_PLUGINS = [rehypeKatex] as const
+const REMARK_PLUGINS = [remarkGfm, remarkMath]
+const REHYPE_PLUGINS = [rehypeKatex]
 
 export default function MessageBubble({ message, onCopy, onRegenerate, isLast }: Props) {
   const [thinkOpen, setThinkOpen] = useState(false)
