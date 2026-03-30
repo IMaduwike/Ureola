@@ -2,16 +2,9 @@
 import { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { Message } from '@/lib/types'
 import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
-
-<ReactMarkdown
-  remarkPlugins={[remarkGfm, remarkMath]}
-  rehypePlugins={[rehypeKatex]}
->
-  {message.content}
-</ReactMarkdown>
+import { Message } from '@/lib/types'
 
 interface Props {
   message: Message
@@ -43,7 +36,6 @@ export default function MessageBubble({ message, onCopy, onRegenerate, isLast }:
       margin: '0 auto',
       width: '100%',
     }}>
-      {/* Avatar */}
       <div style={{
         width: 32, height: 32, borderRadius: 8,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -57,7 +49,6 @@ export default function MessageBubble({ message, onCopy, onRegenerate, isLast }:
         {isUser ? 'Y' : 'U'}
       </div>
 
-      {/* Body */}
       <div style={{ minWidth: 0 }}>
         <div style={{
           fontSize: 12, fontWeight: 600, letterSpacing: '0.04em',
@@ -68,7 +59,6 @@ export default function MessageBubble({ message, onCopy, onRegenerate, isLast }:
           {isUser ? 'You' : 'Ureola'}
         </div>
 
-        {/* Think block */}
         {!isUser && message.thinking && (
           <div className="think-block">
             <div
@@ -86,7 +76,6 @@ export default function MessageBubble({ message, onCopy, onRegenerate, isLast }:
           </div>
         )}
 
-        {/* Content */}
         {isUser ? (
           <div style={{
             fontSize: 15, lineHeight: 1.75,
@@ -96,13 +85,15 @@ export default function MessageBubble({ message, onCopy, onRegenerate, isLast }:
           </div>
         ) : (
           <div className="markdown">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm, remarkMath]}
+              rehypePlugins={[rehypeKatex]}
+            >
               {message.content}
             </ReactMarkdown>
           </div>
         )}
 
-        {/* Actions */}
         {!isUser && (
           <div
             style={{
