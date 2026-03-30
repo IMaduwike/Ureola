@@ -7,23 +7,24 @@ import ThinkingDots from '@/components/ThinkingDots'
 import { Message, Conversation } from '@/lib/types'
 import { generateId, getTitleFromMessages } from '@/lib/utils'
 
-// Flip to true once you add real auth
 const MOCK_LOGGED_IN = false
 
 export default function Home() {
-  const [messages, setMessages]           = useState<Message[]>([])
-  const [input, setInput]                 = useState('')
-  const [isThinking, setIsThinking]       = useState(false)
-  const [summary, setSummary]             = useState<string | null>(null)
-  const [sidebarOpen, setSidebarOpen]     = useState(false)
-  const [conversations, setConversations] = useState<Conversation[]>([])
-  const [activeConvId, setActiveConvId]   = useState<string | null>(null)
+  const [messages, setMessages]                   = useState<Message[]>([])
+  const [input, setInput]                         = useState('')
+  const [isThinking, setIsThinking]               = useState(false)
+  const [streamingContent, setStreamingContent]   = useState<string>('')
+  const [streamingThinking, setStreamingThinking] = useState<string>('')
+  const [summary, setSummary]                     = useState<string | null>(null)
+  const [sidebarOpen, setSidebarOpen]             = useState(false)
+  const [conversations, setConversations]         = useState<Conversation[]>([])
+  const [activeConvId, setActiveConvId]           = useState<string | null>(null)
   const isLoggedIn = MOCK_LOGGED_IN
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, isThinking])
+  }, [messages, isThinking, streamingContent])
 
   const handleNewChat = useCallback(() => {
     setMessages([])
@@ -64,7 +65,7 @@ export default function Home() {
 
   async function sendMessage() {
     const text = input.trim()
-    if (!text || isThinking) return
+    if (!text || isThinking || streamingContent) return
 
     const userMsg: Message = {
       id: generateId(), role: 'user',
@@ -74,6 +75,8 @@ export default function Home() {
     setMessages(newMessages)
     setInput('')
     setIsThinking(true)
+    setStreamingContent('')
+    setStreamingThinking('')
 
     try {
       const res = await fetch('/api/chat', {
@@ -85,29 +88,75 @@ export default function Home() {
         }),
       })
 
-      if (!res.ok) {
+      if (!res.ok || !res.body) {
         const err = await res.json()
         throw new Error(err.error || 'Request failed')
       }
 
-      const data = await res.json()
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let accContent = ''
+      let accThinking = ''
+      let firstContent = true
 
-      const assistantMsg: Message = {
-        id: generateId(), role: 'assistant',
-        content: data.reply,
-        thinking: data.thinking || undefined,
-        timestamp: Date.now(),
-      }
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
 
-      const finalMessages = [...newMessages, assistantMsg]
-      setMessages(finalMessages)
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() ?? ''
 
-      if (data.didSummarize) {
-        setSummary(data.summary)
-        saveConversation(finalMessages.slice(-4), data.summary)
-      } else {
-        if (data.summary) setSummary(data.summary)
-        saveConversation(finalMessages, data.summary || summary)
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          const raw = line.slice(6).trim()
+          if (!raw) continue
+
+          let parsed: Record<string, unknown>
+          try { parsed = JSON.parse(raw) } catch { continue }
+
+          if (parsed.type === 'thinking' && typeof parsed.text === 'string') {
+            accThinking += parsed.text
+            setStreamingThinking(accThinking)
+          }
+
+          if (parsed.type === 'content' && typeof parsed.text === 'string') {
+            if (firstContent) {
+              setIsThinking(false)
+              firstContent = false
+            }
+            accContent += parsed.text
+            setStreamingContent(accContent)
+          }
+
+          if (parsed.type === 'done') {
+            const assistantMsg: Message = {
+              id: generateId(), role: 'assistant',
+              content: accContent,
+              thinking: accThinking.trim() || undefined,
+              timestamp: Date.now(),
+            }
+            const finalMessages = [...newMessages, assistantMsg]
+            setMessages(finalMessages)
+            setStreamingContent('')
+            setStreamingThinking('')
+
+            const didSummarize = parsed.didSummarize as boolean
+            const incomingSummary = parsed.summary as string | null
+            if (didSummarize) {
+              setSummary(incomingSummary)
+              saveConversation(finalMessages.slice(-4), incomingSummary)
+            } else {
+              if (incomingSummary) setSummary(incomingSummary)
+              saveConversation(finalMessages, incomingSummary || summary)
+            }
+          }
+
+          if (parsed.type === 'error') {
+            throw new Error(typeof parsed.message === 'string' ? parsed.message : 'Stream error')
+          }
+        }
       }
 
     } catch (err: unknown) {
@@ -116,12 +165,24 @@ export default function Home() {
         content: err instanceof Error ? err.message : 'Something went wrong.',
         timestamp: Date.now(),
       }])
+      setStreamingContent('')
+      setStreamingThinking('')
     } finally {
       setIsThinking(false)
     }
   }
 
-  const showWelcome = messages.length === 0 && !isThinking
+  const showWelcome = messages.length === 0 && !isThinking && !streamingContent
+
+  const streamingMsg: Message | null = streamingContent
+    ? {
+        id: '__streaming__',
+        role: 'assistant',
+        content: streamingContent,
+        thinking: streamingThinking || undefined,
+        timestamp: Date.now(),
+      }
+    : null
 
   return (
     <div style={{ position: 'relative', zIndex: 1, height: '100vh', display: 'flex', overflow: 'hidden' }}>
@@ -138,7 +199,6 @@ export default function Home() {
 
       <main style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
 
-        {/* Header */}
         <header style={{
           display: 'flex', alignItems: 'center',
           padding: '14px 24px',
@@ -184,10 +244,8 @@ export default function Home() {
           )}
         </header>
 
-        {/* Messages */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '0 24px' }}>
 
-          {/* Welcome */}
           {showWelcome && (
             <div className="stagger" style={{
               display: 'flex', flexDirection: 'column',
@@ -199,9 +257,7 @@ export default function Home() {
                 fontSize: 'clamp(36px, 6vw, 58px)',
                 fontWeight: 600, letterSpacing: '-2px',
                 lineHeight: 1.05, color: 'var(--text)', marginBottom: 8,
-              }}>
-                Ureola
-              </div>
+              }}>Ureola</div>
               <div className="anim-fade-up" style={{
                 fontSize: 18, color: 'var(--text-sub)',
                 fontWeight: 300, letterSpacing: '-0.3px', marginBottom: 40,
@@ -245,7 +301,6 @@ export default function Home() {
             </div>
           )}
 
-          {/* Message list */}
           {messages.map((msg, i) => (
             <MessageBubble
               key={msg.id}
@@ -255,7 +310,16 @@ export default function Home() {
             />
           ))}
 
-          {isThinking && <ThinkingDots />}
+          {streamingMsg && (
+            <MessageBubble
+              key="__streaming__"
+              message={streamingMsg}
+              onCopy={text => navigator.clipboard.writeText(text).catch(() => {})}
+              isStreaming
+            />
+          )}
+
+          {isThinking && !streamingContent && <ThinkingDots />}
           <div ref={messagesEndRef} style={{ height: 20 }} />
         </div>
 
@@ -263,7 +327,7 @@ export default function Home() {
           value={input}
           onChange={setInput}
           onSend={sendMessage}
-          disabled={isThinking}
+          disabled={isThinking || !!streamingContent}
         />
       </main>
     </div>
