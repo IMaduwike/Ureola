@@ -24,39 +24,51 @@ Return ONLY the bullet points, nothing else.`
 
 type ChatMessage = { role: 'user' | 'assistant' | 'system'; content: string }
 
+// Extended Groq params not yet in their TypeScript types
+interface GroqExtendedParams {
+  model: string
+  messages: ChatMessage[]
+  temperature: number
+  max_completion_tokens: number
+  top_p?: number
+  stream: boolean
+  reasoning_effort?: string
+  tools?: Array<{ type: string }>
+}
+
 async function groqStream(messages: ChatMessage[], systemPrompt: string) {
-// @ts-ignore
-  return groq.chat.completions.create({
+  const params: GroqExtendedParams = {
     model: MODEL,
     messages: [{ role: 'system', content: systemPrompt }, ...messages],
     temperature: 0.7,
     max_completion_tokens: 8192,
     top_p: 1,
     stream: true,
-    // ts-expect-error groq-sdk extended params
     reasoning_effort: 'medium',
     tools: [
-      // -expect-error groq-sdk extended tool types
       { type: 'browser_search' },
-      // -expect-error groq-sdk extended tool types
       { type: 'code_interpreter' },
     ],
-  })
+  }
+  // Cast needed because Groq SDK types don't expose extended params
+  return (groq.chat.completions.create as (p: GroqExtendedParams) => Promise<AsyncIterable<{
+    choices: Array<{ delta: Record<string, unknown> }>
+  }>>)(params)
 }
 
-async function groqCall(messages: ChatMessage[], systemPrompt: string) {
-  // @ts-ignore
+async function groqCallNonStream(messages: ChatMessage[], systemPrompt: string): Promise<string> {
+  // Non-streaming call for internal summarization — do NOT pass stream:true here
   const res = await groq.chat.completions.create({
     model: MODEL,
-    messages: [{ role: 'system', content: systemPrompt }, ...messages],
+    messages: [{ role: 'system', content: systemPrompt }, ...messages] as Parameters<typeof groq.chat.completions.create>[0]['messages'],
     temperature: 0.7,
-    max_completion_tokens: 2048,
-    stream: true,
+    max_tokens: 2048,
+    stream: false,
   })
-  return res.choices[0].message.content as string
+  return res.choices[0].message.content ?? ''
 }
 
-async function summarize(messages: ChatMessage[], existingSummary: string | null) {
+async function summarize(messages: ChatMessage[], existingSummary: string | null): Promise<string> {
   const formatted = messages
     .map(m => `${m.role === 'user' ? 'User' : 'Ureola'}: ${m.content}`)
     .join('\n\n')
@@ -65,7 +77,7 @@ async function summarize(messages: ChatMessage[], existingSummary: string | null
     ? `Previous summary:\n${existingSummary}\n\nNew messages to merge:\n${formatted}`
     : formatted
 
-  return groqCall([{ role: 'user', content: input }], SUMMARY_PROMPT)
+  return groqCallNonStream([{ role: 'user', content: input }], SUMMARY_PROMPT)
 }
 
 export async function POST(req: NextRequest) {
@@ -106,7 +118,7 @@ export async function POST(req: NextRequest) {
     let reply = ''
 
     for await (const chunk of stream) {
-      const delta = chunk.choices[0]?.delta as Record<string, unknown>
+      const delta = chunk.choices[0]?.delta
       if (typeof delta?.reasoning === 'string') thinking += delta.reasoning
       if (typeof delta?.content === 'string') reply += delta.content
     }
