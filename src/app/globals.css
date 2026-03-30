@@ -1,6 +1,6 @@
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400&display=swap');
 @import url('https://api.fontshare.com/v2/css?f[]=clash-display@400,500,600,700&display=swap');
-@import 'katex/dist/katex.min.css'
+@import 'katex/dist/katex.min.css';
 
 *, *::before, *::after {
   box-sizing: border-box;
@@ -159,6 +159,36 @@ html, body {
 }
 .markdown pre code { background: none; border: none; padding: 0; color: #e2e8f0; font-size: 13px; line-height: 1.65; }
 .markdown hr { border: none; border-top: 1px solid var(--border); margin: 20px 0; }
+
+/* ── KaTeX / Math overrides ── */
+.markdown .katex {
+  font-size: 1.05em;
+  color: var(--text);
+}
+.markdown .katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 14px 18px;
+  margin: 16px 0;
+  background: rgba(0,0,0,0.3);
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--accent);
+  border-radius: 8px;
+}
+.markdown .katex-display > .katex {
+  white-space: nowrap;
+}
+/* Force KaTeX text to use our palette, not its default black */
+.markdown .katex .mord,
+.markdown .katex .mrel,
+.markdown .katex .mbin,
+.markdown .katex .mopen,
+.markdown .katex .mclose,
+.markdown .katex .mpunct,
+.markdown .katex .minner,
+.markdown .katex .mop {
+  color: var(--text);
+}
 
 .think-block {
   margin-bottom: 14px;
