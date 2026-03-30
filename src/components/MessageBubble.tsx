@@ -3,6 +3,15 @@ import { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Message } from '@/lib/types'
+import remarkMath from 'remark-math'
+import rehypeKatex from 'rehype-katex'
+
+<ReactMarkdown
+  remarkPlugins={[remarkGfm, remarkMath]}
+  rehypePlugins={[rehypeKatex]}
+>
+  {message.content}
+</ReactMarkdown>
 
 interface Props {
   message: Message
