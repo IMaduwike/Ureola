@@ -51,7 +51,7 @@ async function groqCall(messages: ChatMessage[], systemPrompt: string) {
     messages: [{ role: 'system', content: systemPrompt }, ...messages],
     temperature: 0.7,
     max_completion_tokens: 2048,
-    stream: false,
+    stream: true,
   })
   return res.choices[0].message.content as string
 }
