@@ -11,14 +11,35 @@ interface Props {
   onCopy: (text: string) => void
   onRegenerate?: () => void
   isLast?: boolean
+  isStreaming?: boolean
 }
 
-// Plugin arrays defined outside component so they're stable references
-// (avoids ReactMarkdown re-processing on every render)
 const REMARK_PLUGINS = [remarkGfm, remarkMath]
 const REHYPE_PLUGINS = [rehypeKatex]
 
-export default function MessageBubble({ message, onCopy, onRegenerate, isLast }: Props) {
+/**
+ * Normalise math delimiters so remark-math can parse them.
+ * remark-math only understands $...$ and $$...$$ natively.
+ *
+ * Converts:
+ *   \[ ... \]  →  $$...$$  (display / block math)
+ *   \( ... \)  →  $...$    (inline math)
+ *   [ ... ]    →  $$...$$  ONLY when content looks like LaTeX
+ */
+function normaliseMath(text: string): string {
+  // \[ ... \] → $$ ... $$
+  text = text.replace(/\\\[([\s\S]*?)\\\]/g, (_m, inner) => `$$${inner}$$`)
+  // \( ... \) → $ ... $
+  text = text.replace(/\\\(([\s\S]*?)\\\)/g, (_m, inner) => `$${inner}$`)
+  // [ ... ] → $$ ... $$ only when content has LaTeX commands/symbols
+  text = text.replace(/\[([^\]]{2,})\]/g, (_m, inner) => {
+    const looksLikeMath = /[\\^_{}]|\\(?:frac|cdot|times|sqrt|sum|int|alpha|beta|gamma|theta|pi|sigma|infty|partial|nabla|forall|exists|in|notin|subset|cup|cap|mathbb|mathrm|text|left|right|binom|pm|mp|leq|geq|neq|approx|sim|equiv|to|rightarrow|leftarrow|ldots|cdots)/.test(inner)
+    return looksLikeMath ? `$$${inner}$$` : _m
+  })
+  return text
+}
+
+export default function MessageBubble({ message, onCopy, onRegenerate, isLast, isStreaming }: Props) {
   const [thinkOpen, setThinkOpen] = useState(false)
   const [copied, setCopied] = useState(false)
   const [feedback, setFeedback] = useState<'up' | 'down' | null>(null)
@@ -94,12 +115,22 @@ export default function MessageBubble({ message, onCopy, onRegenerate, isLast }:
               remarkPlugins={REMARK_PLUGINS}
               rehypePlugins={REHYPE_PLUGINS}
             >
-              {message.content}
+              {normaliseMath(message.content)}
             </ReactMarkdown>
+            {isStreaming && (
+              <span style={{
+                display: 'inline-block',
+                width: 2, height: '1em',
+                background: 'var(--accent)',
+                marginLeft: 2,
+                verticalAlign: 'text-bottom',
+                animation: 'cursorBlink 0.9s step-end infinite',
+              }} />
+            )}
           </div>
         )}
 
-        {!isUser && (
+        {!isUser && !isStreaming && (
           <div
             style={{
               display: 'flex', alignItems: 'center', gap: 4,
