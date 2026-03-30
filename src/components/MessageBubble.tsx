@@ -13,6 +13,11 @@ interface Props {
   isLast?: boolean
 }
 
+// Plugin arrays defined outside component so they're stable references
+// (avoids ReactMarkdown re-processing on every render)
+const REMARK_PLUGINS = [remarkGfm, remarkMath] as const
+const REHYPE_PLUGINS = [rehypeKatex] as const
+
 export default function MessageBubble({ message, onCopy, onRegenerate, isLast }: Props) {
   const [thinkOpen, setThinkOpen] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -86,8 +91,8 @@ export default function MessageBubble({ message, onCopy, onRegenerate, isLast }:
         ) : (
           <div className="markdown">
             <ReactMarkdown
-              remarkPlugins={[remarkGfm, remarkMath]}
-              rehypePlugins={[rehypeKatex]}
+              remarkPlugins={REMARK_PLUGINS}
+              rehypePlugins={REHYPE_PLUGINS}
             >
               {message.content}
             </ReactMarkdown>
