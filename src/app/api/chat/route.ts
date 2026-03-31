@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import Groq from 'groq-sdk'
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY })
@@ -24,7 +24,6 @@ Return ONLY the bullet points, nothing else.`
 
 type ChatMessage = { role: 'user' | 'assistant' | 'system'; content: string }
 
-// Extended Groq params not yet in their TypeScript types
 interface GroqExtendedParams {
   model: string
   messages: ChatMessage[]
@@ -35,6 +34,8 @@ interface GroqExtendedParams {
   reasoning_effort?: string
   tools?: Array<{ type: string }>
 }
+
+type StreamChunk = { choices: Array<{ delta: Record<string, unknown> }> }
 
 async function groqStream(messages: ChatMessage[], systemPrompt: string) {
   const params: GroqExtendedParams = {
@@ -50,14 +51,10 @@ async function groqStream(messages: ChatMessage[], systemPrompt: string) {
       { type: 'code_interpreter' },
     ],
   }
-  // Cast needed because Groq SDK types don't expose extended params
-  return (groq.chat.completions.create as (p: GroqExtendedParams) => Promise<AsyncIterable<{
-    choices: Array<{ delta: Record<string, unknown> }>
-  }>>)(params)
+  return (groq.chat.completions.create as (p: GroqExtendedParams) => Promise<AsyncIterable<StreamChunk>>)(params)
 }
 
-async function groqCallNonStream(messages: ChatMessage[], systemPrompt: string): Promise<string> {
-  // Non-streaming call for internal summarization — do NOT pass stream:true here
+async function groqNonStream(messages: ChatMessage[], systemPrompt: string): Promise<string> {
   const res = await groq.chat.completions.create({
     model: MODEL,
     messages: [{ role: 'system', content: systemPrompt }, ...messages] as Parameters<typeof groq.chat.completions.create>[0]['messages'],
@@ -72,12 +69,14 @@ async function summarize(messages: ChatMessage[], existingSummary: string | null
   const formatted = messages
     .map(m => `${m.role === 'user' ? 'User' : 'Ureola'}: ${m.content}`)
     .join('\n\n')
-
   const input = existingSummary
     ? `Previous summary:\n${existingSummary}\n\nNew messages to merge:\n${formatted}`
     : formatted
+  return groqNonStream([{ role: 'user', content: input }], SUMMARY_PROMPT)
+}
 
-  return groqCallNonStream([{ role: 'user', content: input }], SUMMARY_PROMPT)
+function sse(payload: Record<string, unknown>): Uint8Array {
+  return new TextEncoder().encode(`data: ${JSON.stringify(payload)}\n\n`)
 }
 
 export async function POST(req: NextRequest) {
@@ -85,14 +84,13 @@ export async function POST(req: NextRequest) {
     const { messages, summary } = await req.json()
 
     if (!Array.isArray(messages)) {
-      return NextResponse.json({ error: 'messages array required' }, { status: 400 })
+      return new Response(JSON.stringify({ error: 'messages array required' }), { status: 400 })
     }
 
     let contextMessages: ChatMessage[] = messages
     let newSummary: string | null = summary || null
     let didSummarize = false
 
-    // Memory compression
     if (messages.length >= SUMMARY_THRESHOLD) {
       const toSummarize = messages.slice(0, messages.length - RECENT_KEEP)
       const recent = messages.slice(messages.length - RECENT_KEEP)
@@ -111,27 +109,53 @@ export async function POST(req: NextRequest) {
       ]
     }
 
-    // Stream — collect reasoning + content separately
-    const stream = await groqStream(contextMessages, SYSTEM_PROMPT)
+    const groqIter = await groqStream(contextMessages, SYSTEM_PROMPT)
 
-    let thinking = ''
-    let reply = ''
+    const readable = new ReadableStream({
+      async start(controller) {
+        let thinking = ''
 
-    for await (const chunk of stream) {
-      const delta = chunk.choices[0]?.delta
-      if (typeof delta?.reasoning === 'string') thinking += delta.reasoning
-      if (typeof delta?.content === 'string') reply += delta.content
-    }
+        try {
+          for await (const chunk of groqIter) {
+            const delta = chunk.choices[0]?.delta
 
-    return NextResponse.json({
-      reply,
-      thinking: thinking.trim() || null,
-      summary: newSummary,
-      didSummarize,
+            if (typeof delta?.reasoning === 'string' && delta.reasoning) {
+              thinking += delta.reasoning
+              controller.enqueue(sse({ type: 'thinking', text: delta.reasoning }))
+            }
+
+            if (typeof delta?.content === 'string' && delta.content) {
+              controller.enqueue(sse({ type: 'content', text: delta.content }))
+            }
+          }
+
+          controller.enqueue(sse({
+            type: 'done',
+            thinking: thinking.trim() || null,
+            summary: newSummary,
+            didSummarize,
+          }))
+        } catch (err) {
+          controller.enqueue(sse({
+            type: 'error',
+            message: err instanceof Error ? err.message : 'Stream error',
+          }))
+        } finally {
+          controller.close()
+        }
+      },
+    })
+
+    return new Response(readable, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      },
     })
 
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Something went wrong'
-    return NextResponse.json({ error: message }, { status: 500 })
+    return new Response(JSON.stringify({ error: message }), { status: 500 })
   }
 }
